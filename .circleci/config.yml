@@ -60,6 +60,7 @@ buildimage: &buildimage
           fi  
           echo Snyk scan:
           eval $SNYK_INTEGRATION container auto $REPOSITORY_NAME:$TAG --file=./Dockerfile
+          
 
 version: 2
 jobs:
