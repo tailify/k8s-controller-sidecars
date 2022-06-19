@@ -1,0 +1,201 @@
+name: 'aws-accounts-management-us-east-1-ecr'
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr/**'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr/**'
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    steps:
+      - name: 'checkout'
+        uses: actions/checkout@main
+      - name: 'checkout'
+        uses: actions/checkout@main
+        with:
+          repository: Riskified/opa-policies
+          path: opa-policies
+          ssh-key: ${{ secrets.GH_SSH_PRIVATE_KEY }}
+      - name: backend role arn check
+        uses: Riskified/action-conftest@master
+        id: backend_role_check
+        continue-on-error: true
+        with:
+          policy: opa-policies/policy
+          files: .infrastructure/terraform/aws/accounts/management/us-east-1/ecr/backend.tf
+          namespace: terraform.backend
+      - name: Post conftest command result to GitHub comment
+        uses: b4b4r07/action-github-comment@master
+        if: steps.backend_role_check.outputs.exit == 1
+        with:
+          body: |
+            ## conftest test result
+            ```
+            ${{ steps.backend_role_check.outputs.result }}
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOG: trace
+      - name: 'stop-on-error'
+        if: steps.backend_role_check.outputs.exit == 1
+        run: exit ${{ steps.backend_role_check.outputs.exit }}
+      - name: configure-aws-credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::255195010505:role/github-actions-role
+          aws-region: us-east-1
+      - name: 'terraform format'
+        uses: hashicorp/terraform-github-actions@master
+        with:
+          tf_actions_version: 1.0.6
+          tf_actions_subcommand: 'fmt'
+          tf_actions_working_dir: '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr'
+          tf_actions_comment: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 'ssh-add'
+        run: |
+          echo "${{ secrets.GH_SSH_PRIVATE_KEY }}" > id_rsa
+          ssh-keyscan github.com > known_hosts
+          chmod 400 id_rsa known_hosts
+        working-directory: .infrastructure/terraform/aws/accounts/management/us-east-1/ecr
+      - name: 'terraform init'
+        uses: hashicorp/terraform-github-actions@master
+        with:
+          tf_actions_version: 1.0.6
+          tf_actions_subcommand: 'init'
+          tf_actions_working_dir: '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr'
+          tf_actions_comment: true
+          args: '-backend-config="role_arn=arn:aws:iam::284309667046:role/github-actions-role"'
+        env:
+          GIT_SSH_COMMAND: 'ssh -i ./id_rsa -o UserKnownHostsFile=./known_hosts'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 'terraform validate'
+        uses: hashicorp/terraform-github-actions@master
+        with:
+          tf_actions_version: 1.0.6
+          tf_actions_subcommand: 'validate'
+          tf_actions_working_dir: '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr'
+          tf_actions_comment: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 'tflint setup'
+        uses: terraform-linters/setup-tflint@master
+        with:
+          tflint_version: v0.34.1
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: 'tflint init'
+        run: tflint --init
+        working-directory: '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr'
+      - name: 'tflint'
+        id: tflint
+        shell: bash {0}
+        working-directory: '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr'
+        run: |
+          stdout=$(tflint -f compact)
+          exit=$?
+          echo "::set-output name=exit::$exit"
+          echo "$stdout"
+          if [[ $exit -eq 1 || $exit -eq 0 ]]; then
+            exit $exit
+          fi
+          status=$(echo "$stdout" | cut -d : -f 4 | cut -d - -f 1 | tail -1 | xargs)
+          echo "::set-output name=status::$status"
+          # https://github.community/t5/GitHub-Actions/set-output-Truncates-Multiline-Strings/m-p/38372/highlight/true#M3322
+          stdout="${stdout//'%'/'%25'}"
+          stdout="${stdout//$'\n'/'%0A'}"
+          stdout="${stdout//$'\r'/'%0D'}"
+          echo "::set-output name=stdout::$stdout"
+      - name: 'tflint comment'
+        uses: actions/github-script@v4
+        if: github.event_name == 'pull_request' && steps.tflint.outputs.exit == 2
+        env:
+          STDOUT: "${{ steps.tflint.outputs.stdout }}"
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const body = `#### \`tflint\` ${{ steps.tflint.outputs.status }}
+            <details><summary>Show Output</summary>
+
+            \`\`\`
+            ${process.env.STDOUT}
+            \`\`\`
+
+            </details>
+
+            *Workflow: \`${{ github.workflow }}\`, Action: \`${{ github.action }}\`, Working Directory: \`/.infrastructure/terraform/aws/accounts/management/us-east-1/ecr\`*`;
+
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body.replace(/^'|'$/gm, '')
+            })
+      - name: 'stop-on-error'
+        if: github.event_name == 'pull_request' && steps.tflint.outputs.exit == 2 && steps.tflint.outputs.status == 'Error'
+        run: exit ${{ steps.tflint.outputs.exit }}
+      - name: 'terraform plan'
+        uses: hashicorp/terraform-github-actions@master
+        with:
+          tf_actions_version: 1.0.6
+          tf_actions_subcommand: 'plan'
+          tf_actions_working_dir: '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr'
+          tf_actions_comment: true
+          args: '-var="role_arn=arn:aws:iam::284309667046:role/github-actions-role"'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TF_CLI_ARGS: --out tfplan.binary
+      - name: 'terraform setup'
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.6
+          terraform_wrapper: false
+      - name: 'terraform show'
+        run: terraform show -json tfplan.binary > tfplan.json
+        working-directory: .infrastructure/terraform/aws/accounts/management/us-east-1/ecr/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: opa dynamic tests
+        id: conftest
+        uses: Riskified/action-conftest@master
+        with:
+          policy: opa-policies/policy
+          files: .infrastructure/terraform/aws/accounts/management/us-east-1/ecr/tfplan.json
+      - name: Post conftest command result to GitHub comment
+        uses: b4b4r07/action-github-comment@master
+        if: steps.conftest.outputs.exit == 1
+        with:
+          body: |
+            ## OPA terraform plan test results:
+            ```
+            ${{ steps.conftest.outputs.result }}
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOG: trace
+      - name: 'stop-on-error'
+        if: steps.conftest.outputs.exit == 1
+        run: exit ${{ steps.conftest.outputs.exit }}
+      - name: 'terraform apply'
+        if: success() && github.event_name == 'push' && (github.event.ref == 'refs/heads/master' || github.event.ref == 'refs/heads/main')
+        uses: hashicorp/terraform-github-actions@master
+        with:
+          tf_actions_version: 1.0.6
+          tf_actions_subcommand: 'apply'
+          tf_actions_working_dir: '.infrastructure/terraform/aws/accounts/management/us-east-1/ecr'
+          tf_actions_comment: true
+          args: '-var="role_arn=arn:aws:iam::284309667046:role/github-actions-role"'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,6 @@
+/.github/                                                               @Riskified/biztech-security-secops-sg @Riskified/dev-sre-sg
+/.infrastructure/                                                       @Riskified/biztech-security-secops-sg @Riskified/dev-sre-sg
+/.infrastructure/terraform/aws/accounts/**/dynamodb.tf                  @Riskified/dev-data-data-apps-sg
+/.infrastructure/terraform/aws/accounts/**/elasticache.tf               @Riskified/dev-data-data-apps-sg
+/.infrastructure/terraform/aws/accounts/**/rds.tf                       @Riskified/dev-data-data-apps-sg
+/.infrastructure/terraform/aws/accounts/**/kafka.tf                     @Riskified/dev-developer-sg
