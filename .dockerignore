@@ -1,7 +1,8 @@
-.git
+.github
 job.yml
 Makefile
 Dockerfile
 manifest.yml
 vendor
 .vscode
+helm-chart
