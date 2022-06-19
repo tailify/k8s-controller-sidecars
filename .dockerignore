@@ -1,8 +1,7 @@
 .github
-job.yml
 Makefile
 Dockerfile
-manifest.yml
 vendor
 .vscode
+README.md
 helm-chart
