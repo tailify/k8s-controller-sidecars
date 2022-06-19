@@ -1,0 +1,7 @@
+.git
+job.yml
+Makefile
+Dockerfile
+manifest.yml
+vendor
+.vscode

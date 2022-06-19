@@ -1,8 +1,6 @@
-
 // The majority of this file was borrowed from https://github.com/rmohr/kubernetes-custom-exec
 
-package main
-
+package lib
 
 import (
 	"bytes"
@@ -36,9 +34,9 @@ func WebsocketCallback(ws *websocket.Conn, resp *http.Response, err error) error
 		if resp != nil && resp.StatusCode != http.StatusOK {
 			buf := new(bytes.Buffer)
 			buf.ReadFrom(resp.Body)
-			return fmt.Errorf("Can't connect to console (%d): %s\n", resp.StatusCode, buf.String())
+			return fmt.Errorf("can't connect to console (%d): %s", resp.StatusCode, buf.String())
 		}
-		return fmt.Errorf("Can't connect to console: %s\n", err.Error())
+		return fmt.Errorf("can't connect to console: %s", err.Error())
 	}
 
 	txt := ""
@@ -49,13 +47,16 @@ func WebsocketCallback(ws *websocket.Conn, resp *http.Response, err error) error
 			if err == io.EOF {
 				return nil
 			}
+			if websocket.IsCloseError(err, 1000) {
+				return nil
+			}
 			return err
 		}
 		txt = txt + string(body)
 	}
 }
 
-func roundTripperFromConfig(config *rest.Config) (http.RoundTripper, error) {
+func RoundTripperFromConfig(config *rest.Config) (http.RoundTripper, error) {
 
 	// Configure TLS
 	tlsConfig, err := rest.TLSConfigFor(config)
@@ -79,7 +80,7 @@ func roundTripperFromConfig(config *rest.Config) (http.RoundTripper, error) {
 	return rest.HTTPWrappersForConfig(config, rt)
 }
 
-func requestFromConfig(config *rest.Config, pod string, container string, namespace string, cmd string) (*http.Request, error) {
+func RequestFromConfig(config *rest.Config, pod string, container string, namespace string, cmd string) (*http.Request, error) {
 
 	u, err := url.Parse(config.Host)
 	if err != nil {
@@ -92,7 +93,7 @@ func requestFromConfig(config *rest.Config, pod string, container string, namesp
 	case "http":
 		u.Scheme = "ws"
 	default:
-		return nil, fmt.Errorf("Malformed URL %s", u.String())
+		return nil, fmt.Errorf("malformed URL %s", u.String())
 	}
 
 	u.Path = fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/exec", namespace, pod)
@@ -104,6 +105,7 @@ func requestFromConfig(config *rest.Config, pod string, container string, namesp
 	req := &http.Request{
 		Method: http.MethodGet,
 		URL:    u,
+		Header: map[string][]string{},
 	}
 
 	return req, nil
