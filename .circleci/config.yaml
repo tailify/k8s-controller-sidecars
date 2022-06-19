@@ -1,0 +1,136 @@
+deploy: &deploy
+  working_directory: .
+  docker:
+    - image: 284309667046.dkr.ecr.us-east-1.amazonaws.com/riskified/tagchanger/k8s-argocd-sync:main-latest
+      aws_auth:
+        aws_access_key_id: $ECR_AWS_ACCESS_KEY_ID
+        aws_secret_access_key: $ECR_AWS_SECRET_ACCESS_KEY
+  steps:
+    - run:
+        name: Deploy Job (argoCD)
+        command: |
+          LOWERCASE_BRANCH=$(echo $CIRCLE_BRANCH | tr '[:upper:]' '[:lower:]')
+          echo TRUNCATED_SHA1: ${TRUNCATED_SHA1=${CIRCLE_SHA1::7}}
+          ./change_and_deploy.sh \
+            -t $LOWERCASE_BRANCH-$TRUNCATED_SHA1 \
+            -y image.tag \
+            -u $GITHUB_USER \
+            -p $GITHUB_PAT_K8S_CONFIGS \
+            -r k8s-devops-configuration \
+            -g controller-sidecars-eks/values-global.yaml \
+            -e ${BUILD_ENV} \
+            -a devops \
+            -s $(eval echo \$ARGOCD_PASSWORD_$BUILD_ENV) \
+            -c controller-sidecars
+
+buildimage: &buildimage
+  docker:
+    - image: 284309667046.dkr.ecr.us-east-1.amazonaws.com/riskified/images-library/docker_base_alpine:master-34cc2a6
+      aws_auth:
+        aws_access_key_id: $ECR_AWS_ACCESS_KEY_ID
+        aws_secret_access_key: $ECR_AWS_SECRET_ACCESS_KEY
+  steps:
+    - checkout
+    - setup_remote_docker:
+        docker_layer_caching: true
+    - run:
+        name: Snyk dependency check
+        command: | 
+          wget https://golang.org/dl/go1.17.5.linux-amd64.tar.gz
+          tar -C /usr/local -xzf go1.17.5.linux-amd64.tar.gz
+          export PATH=$PATH:/usr/local/go/bin
+          mkdir /lib64 && ln -s /lib/libc.musl-x86_64.so.1 /lib64/ld-linux-x86-64.so.2
+          echo $PATH
+          ls -la /usr/local/go/bin
+          /usr/local/go/bin/go version
+          eval $SNYK_INTEGRATION auto --file=go.mod
+    - run:
+        name: Build, Snyk container check
+        command: |
+          LOWERCASE_BRANCH=$(echo $CIRCLE_BRANCH | tr '[:upper:]' '[:lower:]')
+          TRUNCATED_SHA1=${CIRCLE_SHA1::7}
+          TAG=$LOWERCASE_BRANCH-$TRUNCATED_SHA1
+          REPOSITORY_NAME=284309667046.dkr.ecr.us-east-1.amazonaws.com/riskified/images-library/k8s-controller-sidecars
+          docker build -t $REPOSITORY_NAME:$TAG . 
+          echo check if push DOCKER_PUSH: ${DOCKER_PUSH:=true}
+          if [ "$DOCKER_PUSH" = true ]; then
+            echo Pushing $REPOSITORY_NAME:$TAG
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${REPOSITORY_NAME}
+            docker push $REPOSITORY_NAME:$TAG
+          fi  
+          echo Snyk scan:
+          eval $SNYK_INTEGRATION container auto $REPOSITORY_NAME:$TAG --file=./Dockerfile
+
+version: 2
+jobs:
+  build_image:
+    <<: *buildimage
+    environment:
+      DOCKER_PUSH: false
+  build_and_push:
+    <<: *buildimage
+    environment:
+      DOCKER_PUSH: true
+  deploy_staging: 
+    <<: *deploy
+    environment:
+      BUILD_ENV: 'staging'
+  deploy_management: 
+    <<: *deploy
+    environment:
+      BUILD_ENV: 'management'
+  deploy_sandbox: 
+    <<: *deploy
+    environment:
+      BUILD_ENV: 'sandbox'
+  deploy_production: 
+    <<: *deploy
+    environment:
+      BUILD_ENV: 'production'
+  
+
+workflows:
+  version: 2
+  pull_request:
+    jobs:
+    - build_image:
+        context: github
+        filters:
+          branches:
+            ignore:
+              - main
+  build-deploy:
+    jobs:
+      - build_and_push:
+          context: github
+          filters:
+            branches:
+              only:
+                - main
+      - deploy_staging:
+          requires:
+            - build_and_push
+          filters:
+            branches:
+              only: main
+          context: devops
+
+      - hold_production:
+          type: approval
+          requires:
+          - deploy_staging
+
+      - deploy_management:
+          context: devops
+          requires:
+          - hold_production
+      
+      - deploy_sandbox:
+          context: devops
+          requires:
+          - hold_production
+
+      - deploy_production:
+          context: devops
+          requires:
+          - hold_production
