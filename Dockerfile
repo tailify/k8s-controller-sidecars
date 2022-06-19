@@ -2,7 +2,8 @@ FROM golang:1.18-alpine AS build
 
 RUN apk add upx
 WORKDIR /go/src/github.com/Riskified/k8s-controller-sidecars
-COPY go.mod go.sum /go/src/Riskified/k8s-controller-sidecars/
+COPY go.mod go.sum /go/src/github.com/Riskified/k8s-controller-sidecars/
+
 RUN go mod download -x
 
 COPY  . .
@@ -13,5 +14,5 @@ RUN upx sidecars-controller
 
 
 FROM alpine:3.16
-COPY --from=build /go/src/Riskified/k8s-controller-sidecars/sidecars-controller /
+COPY --from=build /go/src/github.com/Riskified/k8s-controller-sidecars/sidecars-controller /
 CMD ["/sidecars-controller"]

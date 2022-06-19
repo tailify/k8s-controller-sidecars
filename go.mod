@@ -2,6 +2,7 @@ module github.com/Riskified/k8s-controller-sidecars
 
 go 1.18
 
+
 require (
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/deckarep/golang-set v1.8.0
