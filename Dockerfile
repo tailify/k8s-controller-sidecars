@@ -1,15 +1,18 @@
-FROM golang:1.10 AS build
-WORKDIR /go/src/github.com/riskified.com/k8s-controller-sidecars
-COPY . /go/src/github.com/riskified.com/k8s-controller-sidecars/
-RUN go get -v
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o main .
+FROM golang:1.18-alpine AS build
 
-RUN apt-get update && apt-get install -y upx
-RUN upx main
+RUN apk add upx
+WORKDIR /go/src/github.com/Riskified/k8s-controller-sidecars
+COPY go.mod go.sum /go/src/github.com/Riskified/k8s-controller-sidecars/
 
-RUN mkdir -p /empty
+RUN go mod download -x
 
-FROM scratch
-COPY --from=build /go/src/github.com/riskified.com/k8s-controller-sidecars/main /
-COPY --from=build /empty /tmp
-CMD ["/main"]
+COPY  . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o sidecars-controller .
+
+
+RUN upx sidecars-controller
+
+
+FROM alpine:3.16
+COPY --from=build /go/src/github.com/Riskified/k8s-controller-sidecars/sidecars-controller /
+CMD ["/sidecars-controller"]

@@ -1,9 +1,7 @@
-export TAG ?= 2.0.0
-IMAGE=registry.riskxint.com/library/controller-sidecars
+IMAGE=284309667046.dkr.ecr.us-east-1.amazonaws.com/riskified/images-library/k8s-controller-sidecars:main-3.0.0
 
 build:
-	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+	CGO_ENABLED=0 go build -a -installsuffix cgo -o main .
 
 docker:
-	docker build -t ${IMAGE}:${TAG} -f Dockerfile .
-	docker push ${IMAGE}:${TAG}
+	docker build -t ${IMAGE} -f Dockerfile .

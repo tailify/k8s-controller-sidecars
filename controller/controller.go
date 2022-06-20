@@ -1,10 +1,11 @@
-package main
+package controller
 
 import (
 	"fmt"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
+	"github.com/Riskified/k8s-controller-sidecars/handler"
+	log "github.com/sirupsen/logrus"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -16,11 +17,11 @@ import (
 // logging, client connectivity, informing (list and watching)
 // queueing, and handling of resource changes
 type Controller struct {
-	logger    *log.Entry
-	clientset kubernetes.Interface
-	queue     workqueue.RateLimitingInterface
-	informer  cache.SharedIndexInformer
-	handler   Handler
+	Logger    *log.Entry
+	Clientset kubernetes.Interface
+	Queue     workqueue.RateLimitingInterface
+	Informer  cache.SharedIndexInformer
+	Handler   handler.Handler
 }
 
 // Run is the main path of execution for the controller loop
@@ -29,53 +30,53 @@ func (c *Controller) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	// ignore new items in the queue but when all goroutines
 	// have completed existing items then shutdown
-	defer c.queue.ShutDown()
+	defer c.Queue.ShutDown()
 
-	c.logger.Info("Controller.Run: initiating")
+	c.Logger.Info("Controller.Run: initiating")
 
 	// run the informer to start listing and watching resources
-	go c.informer.Run(stopCh)
+	go c.Informer.Run(stopCh)
 
 	// do the initial synchronization (one time) to populate resources
 	if !cache.WaitForCacheSync(stopCh, c.HasSynced) {
-		utilruntime.HandleError(fmt.Errorf("Error syncing cache"))
+		utilruntime.HandleError(fmt.Errorf("error syncing cache"))
 		return
 	}
-	c.logger.Info("Controller.Run: cache sync complete")
+	c.Logger.Info("Controller.Run: cache sync complete")
 
 	// run the runWorker method every second with a stop channel
-	wait.Until(c.runWorker, time.Second, stopCh)
+	wait.Until(c.runWorker, 10*time.Second, stopCh)
 }
 
 // HasSynced allows us to satisfy the Controller interface
 // by wiring up the informer's HasSynced method to it
 func (c *Controller) HasSynced() bool {
-	return c.informer.HasSynced()
+	return c.Informer.HasSynced()
 }
 
 // runWorker executes the loop to process new items added to the queue
 func (c *Controller) runWorker() {
-	log.Info("Controller.runWorker: starting")
+	log.Debug("Controller.runWorker: starting")
 
 	// invoke processNextItem to fetch and consume the next change
 	// to a watched or listed resource
 	for c.processNextItem() {
-		log.Info("Controller.runWorker: processing next item")
+		log.Debug("Controller.runWorker: processing next item")
 	}
 
-	log.Info("Controller.runWorker: completed")
+	log.Debug("Controller.runWorker: completed")
 }
 
 // processNextItem retrieves each queued item and takes the
 // necessary handler action based off of if the item was
 // created or deleted
 func (c *Controller) processNextItem() bool {
-	log.Info("Controller.processNextItem: start")
+	log.Debug("Controller.processNextItem: start")
 
 	// fetch the next item (blocking) from the queue to process or
 	// if a shutdown is requested then return out of this to stop
 	// processing
-	key, quit := c.queue.Get()
+	key, quit := c.Queue.Get()
 
 	// stop the worker loop from running as this indicates we
 	// have sent a shutdown message that the queue has indicated
@@ -84,7 +85,7 @@ func (c *Controller) processNextItem() bool {
 		return false
 	}
 
-	defer c.queue.Done(key)
+	defer c.Queue.Done(key)
 
 	// assert the string out of the key (format `namespace/name`)
 	keyRaw := key.(string)
@@ -99,14 +100,14 @@ func (c *Controller) processNextItem() bool {
 	// then we want to retry this particular queue key a certain
 	// number of times (5 here) before we forget the queue key
 	// and throw an error
-	item, exists, err := c.informer.GetIndexer().GetByKey(keyRaw)
+	item, exists, err := c.Informer.GetIndexer().GetByKey(keyRaw)
 	if err != nil {
-		if c.queue.NumRequeues(key) < 5 {
-			c.logger.Errorf("Controller.processNextItem: Failed processing item with key %s with error %v, retrying", key, err)
-			c.queue.AddRateLimited(key)
+		if c.Queue.NumRequeues(key) < 5 {
+			c.Logger.Errorf("Controller.processNextItem: Failed processing item with key %s with error %v, retrying", key, err)
+			c.Queue.AddRateLimited(key)
 		} else {
-			c.logger.Errorf("Controller.processNextItem: Failed processing item with key %s with error %v, no more retries", key, err)
-			c.queue.Forget(key)
+			c.Logger.Errorf("Controller.processNextItem: Failed processing item with key %s with error %v, no more retries", key, err)
+			c.Queue.Forget(key)
 			utilruntime.HandleError(err)
 		}
 	}
@@ -118,13 +119,13 @@ func (c *Controller) processNextItem() bool {
 	// after both instances, we want to forget the key from the queue, as this indicates
 	// a code path of successful queue key processing
 	if !exists {
-		c.logger.Infof("Controller.processNextItem: object deleted detected: %s", keyRaw)
-		c.handler.ObjectDeleted(item)
-		c.queue.Forget(key)
+		c.Logger.Debugf("Controller.processNextItem: object deleted detected: %s", keyRaw)
+		c.Handler.ObjectDeleted(item)
+		c.Queue.Forget(key)
 	} else {
-		c.logger.Infof("Controller.processNextItem: object created detected: %s", keyRaw)
-		c.handler.ObjectCreated(item)
-		c.queue.Forget(key)
+		c.Logger.Debugf("Controller.processNextItem: object created detected: %s", keyRaw)
+		c.Handler.ObjectCreated(item)
+		c.Queue.Forget(key)
 	}
 
 	// keep the worker loop running by returning true
