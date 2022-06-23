@@ -100,15 +100,24 @@ func (t *SidecarShutdownHandler) ObjectCreated(obj interface{}) {
 	pod := obj.(*core_v1.Pod)
 
 	mainProcString, exists := pod.Annotations["riskified.com/main_sidecars"]
+	sidecarsString, sidecarsAnnotationExists := pod.Annotations["riskified.com/sidecars"]
 
 	if exists {
 		log.Debugf("ResourceTrackable: true")
 		log.Infof("pod: %s ; namespace: %s ; mainProc: %s ; node: %s", pod.Name, pod.Namespace, mainProcString, pod.Spec.NodeName)
+	} else if sidecarsAnnotationExists {
+		log.Debugf("sidecar ResourceTrackable: true")
+		log.Infof("pod: %s ; namespace: %s ; sidecars: %s ; node: %s", pod.Name, pod.Namespace, sidecarsString, pod.Spec.NodeName)
 	} else {
 		return
 	}
 
 	mainProc := set.NewSet()
+	sidecars := set.NewSet()
+
+	for _, s := range strings.Split(sidecarsString, ",") {
+		sidecars.Add(s)
+	}
 
 	for _, s := range strings.Split(mainProcString, ",") {
 		mainProc.Add(s)
@@ -142,7 +151,10 @@ func (t *SidecarShutdownHandler) ObjectCreated(obj interface{}) {
 		log.Debugf("We have all the containers")
 		log.Debugf("main: %s, completed: %s, chech: %t", mainProc, completedContainers, completedContainers.Contains(mainProc.ToSlice()...))
 		if completedContainers.Contains(mainProc.ToSlice()...) && len(runningContainers.ToSlice()) > 0 {
-			log.WithFields(log.Fields{"pod": pod.Name, "containers": runningContainers}).Infof("Sending shutdown signal to containers %s in pod %s", runningContainers, pod.Name)
+			log.Infof("Sending shutdown signal to containers %s in pod %s", runningContainers, pod.Name)
+			sendShutdownSignal(pod, runningContainers)
+		} else if runningContainers.Equal(sidecars) && len(runningContainers.ToSlice()) > 0 {
+			log.Infof("Sending shutdown signal to containers %s in pod %s", runningContainers, pod.Name)
 			sendShutdownSignal(pod, runningContainers)
 		}
 	}
