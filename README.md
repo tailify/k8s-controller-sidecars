@@ -12,7 +12,7 @@ This is a response to https://github.com/kubernetes/kubernetes/issues/25908.
 ## Usage
 
 1. Deploy the controller into your cluster.
-1. Add the `riskified.com/main_sidecars` annotation to your pods, with a comma-seperated list of main container names.
+2. Add the `riskified.com/main_sidecars` annotation to your pods, with a comma-seperated list of main container names.
 
 Example:
 
@@ -44,5 +44,37 @@ spec:
             - name: istio-proxy
               image: istio-proxy:latest
             - name: another-sidecar
+              image: busybox:lates
+```
+3. Supports also annotation `riskified.com/sidecars` , list of sidecars containers , comma-seperated
+(is not working with `riskified.com/main_sidecars` annotation)
+
+```
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: test-job
+spec:
+  schedule: "*/5 * * * *"
+  startingDeadlineSeconds: 240
+  failedJobsHistoryLimit: 5
+  successfulJobsHistoryLimit: 1
+  concurrencyPolicy: "Replace"
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 300 # 5 min
+      template:
+        metadata:
+          annotations:
+            riskified.com/sidecars: istio-proxy,
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: test-job
+              image: ubuntu:latest
+              command: ["sleep", "5"]
+            - name: istio-proxy
+              image: istio-proxy:latest
+            - name: another-job-that-need-to-finish-himself
               image: busybox:lates
 ```
